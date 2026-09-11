@@ -53,6 +53,7 @@ def video_info(data: VideoRequest):
             "no_warnings": False,
             "skip_download": True,
             "noplaylist": True,
+
             "extractor_args": {
                 "youtube": {
                     "player_client": ["web", "android"]
@@ -77,7 +78,7 @@ def video_info(data: VideoRequest):
         }
 
     except Exception as e:
-        print("ERRO YT-DLP:", repr(e))
+        print("ERRO YT-DLP INFO:", repr(e))
 
         raise HTTPException(
             status_code=400,
@@ -117,7 +118,7 @@ def download_video(
 
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["web"]
+                    "player_client": ["web", "android"]
                 }
             }
         }
@@ -128,9 +129,7 @@ def download_video(
                 download=True
             )
 
-        files = os.listdir(
-            temp_dir
-        )
+        files = os.listdir(temp_dir)
 
         mp4_files = [
             file
@@ -174,4 +173,93 @@ def download_video(
         raise HTTPException(
             status_code=400,
             detail="Não foi possível baixar este vídeo."
+        )
+
+
+@app.post("/video/test-download")
+def test_download(
+    data: VideoRequest,
+    background_tasks: BackgroundTasks
+):
+    temp_dir = tempfile.mkdtemp(
+        prefix="yt_test_"
+    )
+
+    try:
+        ydl_opts = {
+            "format": (
+                "bestvideo[ext=mp4]+bestaudio[ext=m4a]"
+                "/best[ext=mp4]"
+                "/best"
+            ),
+
+            "outtmpl": os.path.join(
+                temp_dir,
+                "video_baixado.%(ext)s"
+            ),
+
+            "quiet": False,
+
+            "nocheckcertificate": True,
+
+            "noplaylist": True,
+
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["web", "android"]
+                }
+            }
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download(
+                [data.url]
+            )
+
+        files = os.listdir(
+            temp_dir
+        )
+
+        mp4_files = [
+            file
+            for file in files
+            if file.lower().endswith(".mp4")
+        ]
+
+        if not mp4_files:
+            raise Exception(
+                "O download terminou, mas nenhum MP4 foi encontrado."
+            )
+
+        final_file = os.path.join(
+            temp_dir,
+            mp4_files[0]
+        )
+
+        background_tasks.add_task(
+            shutil.rmtree,
+            temp_dir,
+            ignore_errors=True
+        )
+
+        return FileResponse(
+            path=final_file,
+            media_type="video/mp4",
+            filename="video_teste.mp4"
+        )
+
+    except Exception as e:
+        shutil.rmtree(
+            temp_dir,
+            ignore_errors=True
+        )
+
+        print(
+            "ERRO TESTE YT-DLP:",
+            repr(e)
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
         )
