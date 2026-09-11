@@ -45,21 +45,31 @@ def health():
     }
 
 
+def youtube_options_base():
+    return {
+        "quiet": False,
+        "no_warnings": False,
+        "noplaylist": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": [
+                    "ios",
+                    "android",
+                    "web_embedded"
+                ]
+            }
+        }
+    }
+
+
 @app.post("/video/info")
 def video_info(data: VideoRequest):
     try:
-        options = {
-            "quiet": False,
-            "no_warnings": False,
-            "skip_download": True,
-            "noplaylist": True,
+        options = youtube_options_base()
 
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["web", "android"]
-                }
-            }
-        }
+        options.update({
+            "skip_download": True
+        })
 
         with yt_dlp.YoutubeDL(options) as ydl:
             info = ydl.extract_info(
@@ -78,11 +88,14 @@ def video_info(data: VideoRequest):
         }
 
     except Exception as e:
-        print("ERRO YT-DLP INFO:", repr(e))
+        print(
+            "ERRO YT-DLP INFO:",
+            repr(e)
+        )
 
         raise HTTPException(
             status_code=400,
-            detail="Não foi possível analisar este vídeo."
+            detail=str(e)
         )
 
 
@@ -101,35 +114,36 @@ def download_video(
             "video.%(ext)s"
         )
 
-        options = {
-            "quiet": False,
-            "no_warnings": False,
-            "noplaylist": True,
+        options = youtube_options_base()
 
+        options.update({
             "format": (
-                "bestvideo[ext=mp4]+bestaudio[ext=m4a]"
-                "/best[ext=mp4]"
+                "bestvideo[height<=720][ext=mp4]"
+                "+bestaudio[ext=m4a]"
+                "/best[height<=720][ext=mp4]"
                 "/best"
             ),
-
             "merge_output_format": "mp4",
-
-            "outtmpl": output_template,
-
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["web", "android"]
-                }
-            }
-        }
+            "outtmpl": output_template
+        })
 
         with yt_dlp.YoutubeDL(options) as ydl:
-            ydl.extract_info(
+            info = ydl.extract_info(
                 data.url,
                 download=True
             )
 
+            print(
+                "DOWNLOAD FINALIZADO:",
+                info.get("id")
+            )
+
         files = os.listdir(temp_dir)
+
+        print(
+            "ARQUIVOS GERADOS:",
+            files
+        )
 
         mp4_files = [
             file
@@ -139,7 +153,7 @@ def download_video(
 
         if not mp4_files:
             raise Exception(
-                "Arquivo MP4 não foi criado."
+                "Nenhum arquivo MP4 foi criado."
             )
 
         final_file = os.path.join(
@@ -172,7 +186,7 @@ def download_video(
 
         raise HTTPException(
             status_code=400,
-            detail="Não foi possível baixar este vídeo."
+            detail=str(e)
         )
 
 
@@ -186,38 +200,34 @@ def test_download(
     )
 
     try:
-        ydl_opts = {
+        output_template = os.path.join(
+            temp_dir,
+            "video_teste.%(ext)s"
+        )
+
+        options = youtube_options_base()
+
+        options.update({
             "format": (
-                "bestvideo[ext=mp4]+bestaudio[ext=m4a]"
-                "/best[ext=mp4]"
+                "bestvideo[height<=720][ext=mp4]"
+                "+bestaudio[ext=m4a]"
+                "/best[height<=720][ext=mp4]"
                 "/best"
             ),
+            "merge_output_format": "mp4",
+            "outtmpl": output_template
+        })
 
-            "outtmpl": os.path.join(
-                temp_dir,
-                "video_baixado.%(ext)s"
-            ),
+        with yt_dlp.YoutubeDL(options) as ydl:
+            ydl.download([
+                data.url
+            ])
 
-            "quiet": False,
+        files = os.listdir(temp_dir)
 
-            "nocheckcertificate": True,
-
-            "noplaylist": True,
-
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["web", "android"]
-                }
-            }
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download(
-                [data.url]
-            )
-
-        files = os.listdir(
-            temp_dir
+        print(
+            "ARQUIVOS DO TESTE:",
+            files
         )
 
         mp4_files = [
@@ -228,7 +238,8 @@ def test_download(
 
         if not mp4_files:
             raise Exception(
-                "O download terminou, mas nenhum MP4 foi encontrado."
+                "O download terminou, "
+                "mas nenhum MP4 foi encontrado."
             )
 
         final_file = os.path.join(
