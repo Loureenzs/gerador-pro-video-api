@@ -53,7 +53,6 @@ def video_info(data: VideoRequest):
             "no_warnings": False,
             "skip_download": True,
             "noplaylist": True,
-
             "extractor_args": {
                 "youtube": {
                     "player_client": ["web", "android"]
@@ -118,7 +117,7 @@ def download_video(
 
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["web", "android"]
+                    "player_client": ["web"]
                 }
             }
         }
