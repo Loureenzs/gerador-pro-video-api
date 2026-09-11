@@ -16,7 +16,7 @@ import subprocess
 
 app = FastAPI(
     title="Gerador Pro Video API",
-    version="2.0.0"
+    version="2.1.0"
 )
 
 
@@ -40,21 +40,55 @@ class VideoRequest(BaseModel):
 class RenderRequest(BaseModel):
     trailerUrl: str
 
-    # Canvas final
-    canvasWidth: int = Field(default=1080, ge=360, le=2160)
-    canvasHeight: int = Field(default=1920, ge=640, le=3840)
+    # Canvas final vertical 720p
+    canvasWidth: int = Field(
+        default=720,
+        ge=360,
+        le=1080
+    )
+
+    canvasHeight: int = Field(
+        default=1280,
+        ge=640,
+        le=1920
+    )
 
     # Posição do trailer dentro do canvas
-    x: int = Field(default=0, ge=-2160, le=2160)
-    y: int = Field(default=450, ge=-3840, le=3840)
+    x: int = Field(
+        default=0,
+        ge=-1080,
+        le=1080
+    )
 
-    # Tamanho visual do trailer
-    width: int = Field(default=1080, ge=100, le=2160)
-    height: int = Field(default=608, ge=100, le=2160)
+    y: int = Field(
+        default=300,
+        ge=-1920,
+        le=1920
+    )
+
+    # Trailer 16:9 em 720p
+    width: int = Field(
+        default=720,
+        ge=100,
+        le=1080
+    )
+
+    height: int = Field(
+        default=405,
+        ge=100,
+        le=1080
+    )
 
     # Corte opcional
-    startTime: float = Field(default=0, ge=0)
-    endTime: float | None = Field(default=None, ge=0)
+    startTime: float = Field(
+        default=0,
+        ge=0
+    )
+
+    endTime: float | None = Field(
+        default=None,
+        ge=0
+    )
 
 
 # ============================================================
@@ -84,6 +118,7 @@ def youtube_options_base():
 # ============================================================
 
 def baixar_trailer(url: str, pasta: str):
+
     output_template = os.path.join(
         pasta,
         "trailer.%(ext)s"
@@ -92,6 +127,7 @@ def baixar_trailer(url: str, pasta: str):
     options = youtube_options_base()
 
     options.update({
+        # Sempre limitar a 720p
         "format": (
             "bestvideo[height<=720][ext=mp4]"
             "+bestaudio[ext=m4a]"
@@ -106,6 +142,7 @@ def baixar_trailer(url: str, pasta: str):
     })
 
     with yt_dlp.YoutubeDL(options) as ydl:
+
         info = ydl.extract_info(
             url,
             download=True
@@ -143,11 +180,13 @@ def baixar_trailer(url: str, pasta: str):
 
 @app.get("/")
 def home():
+
     return {
         "success": True,
         "status": "online",
         "service": "Gerador Pro Video API",
-        "version": "2.0.0"
+        "version": "2.1.0",
+        "render": "720x1280"
     }
 
 
@@ -157,6 +196,7 @@ def home():
 
 @app.get("/health")
 def health():
+
     return {
         "success": True,
         "status": "healthy"
@@ -209,7 +249,7 @@ def video_info(data: VideoRequest):
 
 
 # ============================================================
-# DOWNLOAD SIMPLES
+# DOWNLOAD SIMPLES 720P
 # ============================================================
 
 @app.post("/video/download")
@@ -243,7 +283,7 @@ def download_video(
         return FileResponse(
             path=final_file,
             media_type="video/mp4",
-            filename="video.mp4"
+            filename="video-720p.mp4"
         )
 
     except Exception as e:
@@ -265,7 +305,7 @@ def download_video(
 
 
 # ============================================================
-# TESTE DOWNLOAD
+# TESTE DOWNLOAD 720P
 # ============================================================
 
 @app.post("/video/test-download")
@@ -299,7 +339,7 @@ def test_download(
         return FileResponse(
             path=final_file,
             media_type="video/mp4",
-            filename="video_teste.mp4"
+            filename="video-teste-720p.mp4"
         )
 
     except Exception as e:
@@ -321,7 +361,7 @@ def test_download(
 
 
 # ============================================================
-# RENDER VERTICAL 9:16
+# RENDER VERTICAL 720x1280
 # ============================================================
 
 @app.post("/video/render")
@@ -338,7 +378,7 @@ def render_video(
 
         print("")
         print("=======================================")
-        print("NOVO RENDER")
+        print("NOVO RENDER 720P")
         print("=======================================")
 
         print(
@@ -354,7 +394,7 @@ def render_video(
         )
 
         print(
-            "Trailer:",
+            "Tamanho trailer:",
             data.width,
             "x",
             data.height
@@ -368,7 +408,7 @@ def render_video(
 
 
         # ====================================================
-        # VALIDAÇÃO DO TEMPO
+        # VALIDAÇÃO DE TEMPO
         # ====================================================
 
         if (
@@ -381,7 +421,7 @@ def render_video(
 
 
         # ====================================================
-        # BAIXAR TRAILER
+        # BAIXAR TRAILER EM ATÉ 720P
         # ====================================================
 
         trailer_file, info = baixar_trailer(
@@ -401,7 +441,7 @@ def render_video(
 
         output_file = os.path.join(
             temp_dir,
-            "gerador-pro-final.mp4"
+            "gerador-pro-final-720x1280.mp4"
         )
 
 
@@ -409,25 +449,15 @@ def render_video(
         # FILTRO FFMPEG
         # ============================================================
 
-        #
-        # 1. Cria canvas preto 1080x1920
-        #
-        # 2. Redimensiona o trailer para o tamanho escolhido
-        #
-        # 3. Mantém a proporção original
-        #
-        # 4. Adiciona barras internas caso necessário
-        #
-        # 5. Posiciona trailer no X/Y escolhido
-        #
-
         filter_complex = (
+            # Canvas preto vertical
             f"color="
             f"c=black:"
             f"s={data.canvasWidth}x{data.canvasHeight}:"
             f"r=30"
             f"[background];"
 
+            # Trailer
             f"[0:v]"
             f"scale="
             f"{data.width}:"
@@ -441,6 +471,7 @@ def render_video(
             f"color=black"
             f"[trailer];"
 
+            # Posicionamento
             f"[background]"
             f"[trailer]"
             f"overlay="
@@ -461,10 +492,7 @@ def render_video(
         ]
 
 
-        # ====================================================
-        # START TIME
-        # ============================================================
-
+        # Corte inicial
         if data.startTime > 0:
 
             command.extend([
@@ -479,10 +507,7 @@ def render_video(
         ])
 
 
-        # ====================================================
-        # DURAÇÃO
-        # ============================================================
-
+        # Duração
         if data.endTime is not None:
 
             duration = (
@@ -508,19 +533,23 @@ def render_video(
             "-map",
             "0:a?",
 
-            # Vídeo
+            # Vídeo H.264
             "-c:v",
             "libx264",
 
+            # Bom equilíbrio entre velocidade e qualidade
             "-preset",
             "veryfast",
 
+            # Qualidade
             "-crf",
             "23",
 
+            # Compatibilidade máxima
             "-pix_fmt",
             "yuv420p",
 
+            # 30 fps
             "-r",
             "30",
 
@@ -531,7 +560,7 @@ def render_video(
             "-b:a",
             "128k",
 
-            # Compatibilidade web / celular
+            # Melhor reprodução web
             "-movflags",
             "+faststart",
 
@@ -542,7 +571,7 @@ def render_video(
 
 
         print("")
-        print("EXECUTANDO FFMPEG")
+        print("EXECUTANDO FFMPEG 720x1280")
         print("")
 
 
@@ -592,7 +621,7 @@ def render_video(
 
 
         print(
-            "RENDER CONCLUÍDO"
+            "RENDER CONCLUÍDO COM SUCESSO"
         )
 
         print(
@@ -608,7 +637,7 @@ def render_video(
 
 
         # ====================================================
-        # LIMPEZA APÓS ENVIO
+        # LIMPEZA
         # ============================================================
 
         background_tasks.add_task(
@@ -619,13 +648,13 @@ def render_video(
 
 
         # ====================================================
-        # DEVOLVER MP4
+        # RETORNAR MP4
         # ============================================================
 
         return FileResponse(
             path=output_file,
             media_type="video/mp4",
-            filename="gerador-pro-vertical.mp4"
+            filename="gerador-pro-720x1280.mp4"
         )
 
 
