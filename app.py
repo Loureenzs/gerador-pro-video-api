@@ -16,9 +16,8 @@ import subprocess
 
 app = FastAPI(
     title="Gerador Pro Video API",
-    version="2.1.0"
+    version="2.2.0"
 )
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,7 +39,7 @@ class VideoRequest(BaseModel):
 class RenderRequest(BaseModel):
     trailerUrl: str
 
-    # Canvas final vertical 720p
+    # Canvas vertical 720p
     canvasWidth: int = Field(
         default=720,
         ge=360,
@@ -53,7 +52,7 @@ class RenderRequest(BaseModel):
         le=1920
     )
 
-    # Posição do trailer dentro do canvas
+    # Posição do trailer
     x: int = Field(
         default=0,
         ge=-1080,
@@ -66,7 +65,7 @@ class RenderRequest(BaseModel):
         le=1920
     )
 
-    # Trailer 16:9 em 720p
+    # Tamanho do trailer 16:9
     width: int = Field(
         default=720,
         ge=100,
@@ -100,7 +99,6 @@ def youtube_options_base():
         "quiet": False,
         "no_warnings": False,
         "noplaylist": True,
-
         "extractor_args": {
             "youtube": {
                 "player_client": [
@@ -114,7 +112,7 @@ def youtube_options_base():
 
 
 # ============================================================
-# FUNÇÃO PARA BAIXAR TRAILER
+# BAIXAR TRAILER
 # ============================================================
 
 def baixar_trailer(url: str, pasta: str):
@@ -127,7 +125,6 @@ def baixar_trailer(url: str, pasta: str):
     options = youtube_options_base()
 
     options.update({
-        # Sempre limitar a 720p
         "format": (
             "bestvideo[height<=720][ext=mp4]"
             "+bestaudio[ext=m4a]"
@@ -135,14 +132,11 @@ def baixar_trailer(url: str, pasta: str):
             "/best[height<=720]"
             "/best"
         ),
-
         "merge_output_format": "mp4",
-
         "outtmpl": output_template
     })
 
     with yt_dlp.YoutubeDL(options) as ydl:
-
         info = ydl.extract_info(
             url,
             download=True
@@ -185,7 +179,8 @@ def home():
         "success": True,
         "status": "online",
         "service": "Gerador Pro Video API",
-        "version": "2.1.0",
+        "version": "2.2.0",
+        "download": "max 720p",
         "render": "720x1280"
     }
 
@@ -204,7 +199,7 @@ def health():
 
 
 # ============================================================
-# INFORMAÇÕES DO VÍDEO
+# INFO DO VÍDEO
 # ============================================================
 
 @app.post("/video/info")
@@ -378,7 +373,7 @@ def render_video(
 
         print("")
         print("=======================================")
-        print("NOVO RENDER 720P")
+        print("NOVO RENDER")
         print("=======================================")
 
         print(
@@ -406,10 +401,17 @@ def render_video(
             data.y
         )
 
+        print(
+            "Tempo:",
+            data.startTime,
+            "até",
+            data.endTime
+        )
+
 
         # ====================================================
-        # VALIDAÇÃO DE TEMPO
-        # ====================================================
+        # VALIDAR TEMPO
+        # ============================================================
 
         if (
             data.endTime is not None
@@ -421,8 +423,8 @@ def render_video(
 
 
         # ====================================================
-        # BAIXAR TRAILER EM ATÉ 720P
-        # ====================================================
+        # BAIXAR TRAILER
+        # ============================================================
 
         trailer_file, info = baixar_trailer(
             data.trailerUrl,
@@ -437,7 +439,7 @@ def render_video(
 
         # ====================================================
         # ARQUIVO FINAL
-        # ====================================================
+        # ============================================================
 
         output_file = os.path.join(
             temp_dir,
@@ -446,38 +448,56 @@ def render_video(
 
 
         # ====================================================
-        # FILTRO FFMPEG
+        # DURAÇÃO
+        # ============================================================
+
+        duration = None
+
+        if data.endTime is not None:
+            duration = (
+                data.endTime
+                -
+                data.startTime
+            )
+
+
+        # ====================================================
+        # FILTER COMPLEX
         # ============================================================
 
         filter_complex = (
-            # Canvas preto vertical
-            f"color="
-            f"c=black:"
-            f"s={data.canvasWidth}x{data.canvasHeight}:"
-            f"r=30"
-            f"[background];"
-
-            # Trailer
             f"[0:v]"
-            f"scale="
-            f"{data.width}:"
-            f"{data.height}:"
+            f"scale={data.width}:{data.height}:"
             f"force_original_aspect_ratio=decrease,"
             f"pad="
             f"{data.width}:"
             f"{data.height}:"
             f"(ow-iw)/2:"
             f"(oh-ih)/2:"
-            f"color=black"
+            f"black"
             f"[trailer];"
 
-            # Posicionamento
+            f"color="
+            f"c=black:"
+            f"s={data.canvasWidth}x{data.canvasHeight}:"
+            f"r=30"
+        )
+
+        if duration is not None:
+
+            filter_complex += (
+                f":d={duration}"
+            )
+
+        filter_complex += (
+            f"[background];"
+
             f"[background]"
             f"[trailer]"
             f"overlay="
             f"x={data.x}:"
             f"y={data.y}:"
-            f"shortest=1"
+            f"eof_action=pass"
             f"[video]"
         )
 
@@ -492,7 +512,7 @@ def render_video(
         ]
 
 
-        # Corte inicial
+        # Começar em determinado tempo
         if data.startTime > 0:
 
             command.extend([
@@ -507,21 +527,6 @@ def render_video(
         ])
 
 
-        # Duração
-        if data.endTime is not None:
-
-            duration = (
-                data.endTime
-                -
-                data.startTime
-            )
-
-            command.extend([
-                "-t",
-                str(duration)
-            ])
-
-
         command.extend([
 
             "-filter_complex",
@@ -533,23 +538,19 @@ def render_video(
             "-map",
             "0:a?",
 
-            # Vídeo H.264
+            # Vídeo
             "-c:v",
             "libx264",
 
-            # Bom equilíbrio entre velocidade e qualidade
             "-preset",
             "veryfast",
 
-            # Qualidade
             "-crf",
             "23",
 
-            # Compatibilidade máxima
             "-pix_fmt",
             "yuv420p",
 
-            # 30 fps
             "-r",
             "30",
 
@@ -560,20 +561,42 @@ def render_video(
             "-b:a",
             "128k",
 
-            # Melhor reprodução web
+            # Compatibilidade web
             "-movflags",
-            "+faststart",
-
-            "-shortest",
-
-            output_file
+            "+faststart"
         ])
 
 
+        # Limite de duração
+        if duration is not None:
+
+            command.extend([
+                "-t",
+                str(duration)
+            ])
+
+
+        command.append(
+            output_file
+        )
+
+
+        # ====================================================
+        # LOG DO COMANDO
+        # ============================================================
+
         print("")
-        print("EXECUTANDO FFMPEG 720x1280")
+        print("========== COMANDO FFMPEG ==========")
+        print(
+            " ".join(command)
+        )
+        print("====================================")
         print("")
 
+
+        # ====================================================
+        # EXECUTAR FFMPEG
+        # ============================================================
 
         resultado = subprocess.run(
             command,
@@ -589,13 +612,19 @@ def render_video(
 
         if resultado.returncode != 0:
 
+            print("")
             print(
-                "ERRO FFMPEG:"
+                "========== FFMPEG STDERR =========="
             )
 
             print(
                 resultado.stderr
             )
+
+            print(
+                "==================================="
+            )
+            print("")
 
             raise Exception(
                 "FFmpeg não conseguiu processar o vídeo."
@@ -620,6 +649,7 @@ def render_video(
         )
 
 
+        print("")
         print(
             "RENDER CONCLUÍDO COM SUCESSO"
         )
