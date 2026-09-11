@@ -16,7 +16,7 @@ import subprocess
 
 app = FastAPI(
     title="Gerador Pro Video API",
-    version="2.2.0"
+    version="2.3.0"
 )
 
 app.add_middleware(
@@ -39,7 +39,7 @@ class VideoRequest(BaseModel):
 class RenderRequest(BaseModel):
     trailerUrl: str
 
-    # Canvas vertical 720p
+    # Canvas final vertical 720p
     canvasWidth: int = Field(
         default=720,
         ge=360,
@@ -65,15 +65,18 @@ class RenderRequest(BaseModel):
         le=1920
     )
 
-    # Tamanho do trailer 16:9
+    # Largura visual do trailer
     width: int = Field(
         default=720,
         ge=100,
         le=1080
     )
 
+    # Mantido apenas por compatibilidade com o Lovable.
+    # O FFmpeg calculará a altura automaticamente
+    # para preservar 16:9 e garantir número par.
     height: int = Field(
-        default=405,
+        default=404,
         ge=100,
         le=1080
     )
@@ -112,7 +115,7 @@ def youtube_options_base():
 
 
 # ============================================================
-# BAIXAR TRAILER
+# BAIXAR TRAILER EM ATÉ 720P
 # ============================================================
 
 def baixar_trailer(url: str, pasta: str):
@@ -179,7 +182,7 @@ def home():
         "success": True,
         "status": "online",
         "service": "Gerador Pro Video API",
-        "version": "2.2.0",
+        "version": "2.3.0",
         "download": "max 720p",
         "render": "720x1280"
     }
@@ -214,7 +217,6 @@ def video_info(data: VideoRequest):
         })
 
         with yt_dlp.YoutubeDL(options) as ydl:
-
             info = ydl.extract_info(
                 data.url,
                 download=False
@@ -373,7 +375,7 @@ def render_video(
 
         print("")
         print("=======================================")
-        print("NOVO RENDER")
+        print("NOVO RENDER 720x1280")
         print("=======================================")
 
         print(
@@ -389,10 +391,8 @@ def render_video(
         )
 
         print(
-            "Tamanho trailer:",
-            data.width,
-            "x",
-            data.height
+            "Largura trailer:",
+            data.width
         )
 
         print(
@@ -464,17 +464,23 @@ def render_video(
         # ====================================================
         # FILTER COMPLEX
         # ============================================================
+        #
+        # scale=largura:-2
+        #
+        # -2 faz o FFmpeg:
+        # - preservar proporção
+        # - calcular altura automaticamente
+        # - garantir altura par
+        #
+        # Para largura 720 em 16:9:
+        # resultado aproximado = 720x404
+        # ============================================================
 
         filter_complex = (
             f"[0:v]"
-            f"scale={data.width}:{data.height}:"
+            f"scale={data.width}:-2:"
             f"force_original_aspect_ratio=decrease,"
-            f"pad="
-            f"{data.width}:"
-            f"{data.height}:"
-            f"(ow-iw)/2:"
-            f"(oh-ih)/2:"
-            f"black"
+            f"setsar=1"
             f"[trailer];"
 
             f"color="
@@ -484,7 +490,6 @@ def render_video(
         )
 
         if duration is not None:
-
             filter_complex += (
                 f":d={duration}"
             )
@@ -497,12 +502,13 @@ def render_video(
             f"overlay="
             f"x={data.x}:"
             f"y={data.y}:"
-            f"eof_action=pass"
+            f"eof_action=pass:"
+            f"format=auto"
             f"[video]"
         )
 
 
-        # ====================================================
+        # ============================================================
         # COMANDO FFMPEG
         # ============================================================
 
@@ -512,7 +518,10 @@ def render_video(
         ]
 
 
-        # Começar em determinado tempo
+        # ============================================================
+        # INÍCIO DO TRECHO
+        # ============================================================
+
         if data.startTime > 0:
 
             command.extend([
@@ -521,11 +530,19 @@ def render_video(
             ])
 
 
+        # ============================================================
+        # INPUT
+        # ============================================================
+
         command.extend([
             "-i",
             trailer_file
         ])
 
+
+        # ============================================================
+        # FILTRO + CODECS
+        # ============================================================
 
         command.extend([
 
@@ -561,13 +578,16 @@ def render_video(
             "-b:a",
             "128k",
 
-            # Compatibilidade web
+            # Melhor reprodução web/mobile
             "-movflags",
             "+faststart"
         ])
 
 
-        # Limite de duração
+        # ============================================================
+        # DURAÇÃO
+        # ============================================================
+
         if duration is not None:
 
             command.extend([
@@ -576,25 +596,36 @@ def render_video(
             ])
 
 
+        # ============================================================
+        # OUTPUT
+        # ============================================================
+
         command.append(
             output_file
         )
 
 
-        # ====================================================
+        # ============================================================
         # LOG DO COMANDO
         # ============================================================
 
         print("")
-        print("========== COMANDO FFMPEG ==========")
+        print(
+            "========== COMANDO FFMPEG =========="
+        )
+
         print(
             " ".join(command)
         )
-        print("====================================")
+
+        print(
+            "===================================="
+        )
+
         print("")
 
 
-        # ====================================================
+        # ============================================================
         # EXECUTAR FFMPEG
         # ============================================================
 
@@ -606,32 +637,35 @@ def render_video(
         )
 
 
-        # ====================================================
+        # ============================================================
+        # LOG DETALHADO
+        # ============================================================
+
+        print(
+            "RETORNO FFMPEG:",
+            resultado.returncode
+        )
+
+        for linha in resultado.stderr.splitlines():
+
+            print(
+                "FFMPEG >",
+                linha
+            )
+
+
+        # ============================================================
         # ERRO FFMPEG
         # ============================================================
 
         if resultado.returncode != 0:
-
-            print("")
-            print(
-                "========== FFMPEG STDERR =========="
-            )
-
-            print(
-                resultado.stderr
-            )
-
-            print(
-                "==================================="
-            )
-            print("")
 
             raise Exception(
                 "FFmpeg não conseguiu processar o vídeo."
             )
 
 
-        # ====================================================
+        # ============================================================
         # VERIFICAR ARQUIVO
         # ============================================================
 
@@ -666,7 +700,7 @@ def render_video(
         )
 
 
-        # ====================================================
+        # ============================================================
         # LIMPEZA
         # ============================================================
 
@@ -677,7 +711,7 @@ def render_video(
         )
 
 
-        # ====================================================
+        # ============================================================
         # RETORNAR MP4
         # ============================================================
 
