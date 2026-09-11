@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 import yt_dlp
 
 app = FastAPI(
@@ -8,12 +8,9 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# TROQUE depois pelo domínio real do seu Gerador Pro
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "*"
-    ],
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,10 +42,16 @@ def health():
 def video_info(data: VideoRequest):
     try:
         options = {
-            "quiet": True,
-            "no_warnings": True,
+            "quiet": False,
+            "no_warnings": False,
             "skip_download": True,
             "noplaylist": True,
+
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["web", "android"]
+                }
+            }
         }
 
         with yt_dlp.YoutubeDL(options) as ydl:
@@ -68,6 +71,8 @@ def video_info(data: VideoRequest):
         }
 
     except Exception as e:
+        print("ERRO YT-DLP:", repr(e))
+
         raise HTTPException(
             status_code=400,
             detail="Não foi possível analisar este vídeo."
